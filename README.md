@@ -1,2 +1,3 @@
 # image-processing
-[Project] Image Processing Tool developed with Python
+[Project][Applied Mathematics and Statistics]
+Image Processing Tool developed with Python
