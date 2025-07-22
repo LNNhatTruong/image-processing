@@ -2,10 +2,11 @@ from PIL import Image               # for reading and writing images
 import numpy as np                  # for matrix computation
 import matplotlib.pyplot as plt     # for showing images
 import colorsys                     # for converting RGB to HSL
+import time
 
 save_folder = "results/"
 input_folder = "images/"
-saved_image_path = []
+saved_image_path = ""
 
 # Helper Functions
 def read_img(img_path):
@@ -22,8 +23,7 @@ def read_img(img_path):
         new_path = save_folder + filename
     else:
         new_path = img_path
-    saved_image_path.clear()
-    saved_image_path.append(new_path)
+    saved_image_path = new_path
     
     img = Image.open(img_path).convert('RGB')
     img_2d = np.array(img)
@@ -161,9 +161,11 @@ def blur_and_sharpen(img_2d):
     return blur_img.astype(np.uint8), sharpen_img.astype(np.uint8)
 
 # Function 6: Crop by size
-def crop_by_size(img_2d, size=1/2):
+def crop_by_size(img_2d, size=1/4):
     h, w, _ = img_2d.shape
     new_h, new_w = int(h * size), int(w * size)
+    if new_h > h or new_w > w:
+        return img_2d
     center_h, center_w = h // 2, w // 2
     top = max(center_h - new_h // 2, 0)
     left = max(center_w - new_w // 2, 0)
@@ -243,20 +245,19 @@ def process_image(img_2d, func=[1, 2, 3,...]):
     if not new_func:
         return [img_2d]
 
-    if save_flag == True and (not saved_image_path  or saved_image_path[0] is None):
+    if save_flag == True and not saved_image_path:
         print("No path found to save image!")
         print("Using default: image_<processed_function>.png")
         original_path = "image.png"
-    else:
-        original_path = saved_image_path[0]
+    elif save_flag == True:
+        original_path = saved_image_path
 
-    
     save_img = [] # Save path to append suffix
     results = []
     for f in new_func:
         if f in func_map:
             processed_img = func_map[f](img_2d)
-
+            
             # Check return error
             if processed_img is None:
                 print(f"Function {f} returned nothing!")
@@ -288,29 +289,170 @@ def process_image(img_2d, func=[1, 2, 3,...]):
             Image.fromarray(img.astype(np.uint8)).save(save_img[idx])
     
     return results
+
+def consecutive_process_image(img_2d, func=[1, 2, 3,...]):
+    ''' Process image with a list of functions
+    func: a list of functions to apply to the image
+    return processed 2D image
+    '''
+
+    # No img_2d array or no saved path
+    if img_2d is None or not saved_image_path or not saved_image_path[0]:
+        raise ValueError("Please call read_img() for img_2d parameter.")
     
+    # Map functions to list of func
+    func_map = {
+        1: brighten_image,
+        2: increase_contrast,
+        3: flip_image,
+        4: convert_grayscale_sepia,
+        5: blur_and_sharpen,
+        6: crop_by_size,
+        7: crop_by_frame
+    }
+    branching_func = [3, 4, 5, 7]
+
+    # Map suffix to list of func
+    suffix_map = {
+        1: "_brighten",
+        2: "_contrast",
+        3: ("_verticalFlip", "_mirroredFlip"),
+        4: ("_grayscale", "_sepia"),
+        5: ("_blur", "_sharpen"),
+        6: "_cropped",
+        7: ("_circularCrop", "_doubleEllipseCrop")
+    }
+
+    save_flag = (0 in func)
+    # Remove 0
+    new_func = [f for f in func if f != 0]
+
+    # Check empty function list
+    if not new_func:
+        return [img_2d]
+    
+    # If suffix is already in path, increment the repetition number
+    def increment_suffix_in_path(path, suffix):
+        dot_idx = path.rfind('.')
+        base = path[:dot_idx] if dot_idx != -1 else path
+        ext = path[dot_idx:] if dot_idx != -1 else ''
+        idx = base.find(suffix)
+        if idx == -1:
+            return base + suffix + ext
+        # Check if a number follows the suffix
+        num_start = idx + len(suffix)
+        num_end = num_start
+        while num_end < len(base) and base[num_end].isdigit():
+            num_end += 1
+        if num_start < num_end:
+            # Increment existing number
+            num = int(base[num_start:num_end]) + 1
+            new_base = base[:num_start] + str(num) + base[num_end:]
+        else:
+            # Add '2' if no number exists
+            new_base = base[:num_start] + '2' + base[num_start:]
+        return new_base + ext
+    
+    # Each branch is saved as (image, path, previous suffix)
+    branches = [(img_2d, saved_image_path, None)]
+    for f in new_func:
+        new_branches = []
+        for img, path, prev_suffix in branches:
+            if f in suffix_map:
+                suffixes = suffix_map[f]
+                if isinstance(suffixes, str):
+                    suffixes = [suffixes]
+            else:
+                suffixes = [""]
+            
+            # Handling branching functions
+            if f in branching_func:
+                if f in func_map:
+                    results = func_map[f](img)
+                else:
+                    results = [img, img]
+
+                for i in range(2):
+                    suffix = suffixes[i]
+                    if prev_suffix == suffix:
+                        new_path = increment_suffix_in_path(path, suffix)
+                    else:
+                        dot_idx = path.rfind('.')
+                        if dot_idx == -1:
+                            new_path = path + suffix
+                        else:
+                            new_path = path[:dot_idx] + suffix + path[dot_idx:]
+
+                    # Save new branches
+                    new_branches.append((results[i], new_path, suffix))
+
+            # Single result functions
+            else:
+                if f in func_map:
+                    result = func_map[f](img)
+                else:
+                    result = img
+
+                suffix = suffixes[0]
+                if prev_suffix == suffix:
+                    new_path = increment_suffix_in_path(path, suffix)
+                else:
+                    dot_idx = path.rfind('.')
+                    if dot_idx == -1:
+                        new_path = path + suffix
+                    else:
+                        new_path = path[:dot_idx] + suffix + path[dot_idx:]
+                
+                # Save the single branch
+                new_branches.append((result, new_path, suffix))
+
+        # Update new branches for each iteration 
+        branches = new_branches
+        
+    # Save all resulting images
+    if save_flag:
+        for img, path, _ in branches:
+            Image.fromarray(img.astype(np.uint8)).save(path)
+    
+    # Return list of processed images
+    results = []
+    for img, _ , _ in branches:
+        results.append(img.astype(np.uint8))
+    return results
+
+def measure_time(array_size, function, run):
+    h, w = array_size
+    total_time = 0
+    for _ in range(run):
+        test_array = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+        start_time = time.time()
+        function(test_array)
+        end_time = time.time()
+        total_time += end_time - start_time
+    return total_time / run
+
 # Main function
 def main():
-    img_path = "images/fall.png"
+    img_path = "images/mountain.jpg"
     original_img = read_img(img_path)
 
     results = [original_img]
     results.extend(
-        process_image(original_img, func=[0, 1, 2, 3, 4, 5, 6, 7])
+       consecutive_process_image(original_img, [0, 7])
     )
 
+    # test_size = 2048
+    # for _ in range(1):
+    #     num_runs = 1
+    #     test_function = blur_and_sharpen
+    #     avg_time = measure_time((test_size, test_size), test_function, num_runs)
+    #     print(f"Function {test_function.__name__} on a test array of size ({test_size} x {test_size}) took {avg_time:.4f} seconds.")
+    #     test_size *= 2
+
     # Display images
-    n = len(results)
-    plt.figure(figsize=(5 * n, 5))
-    for i, img in enumerate(results):
-        plt.subplot(1, n, i + 1)
-        plt.imshow(img)
-        plt.axis('off')
-        if i != 0:
-            plt.title(f"Result {i}")
-        else:
-            plt.title("Original Image")
-    plt.show()
+    # for img in results:
+    #     plt.imshow(img)
+    # plt.show()
     
 if __name__ == "__main__":
     main()
