@@ -49,9 +49,7 @@ def convert_rgb_to_hsl(img_2d):
         for j in range(img_2d.shape[1]):
             r, g, b = img_2d[i, j] / 255.0
             h, l, s = colorsys.rgb_to_hls(r, g, b) # Returns values in range [0, 1]
-
-            # Convert Hue to degrees
-            hsl_img[i, j] = [h * 360, s, l]
+            hsl_img[i, j] = [h, s, l]
 
     return hsl_img
 
@@ -62,7 +60,7 @@ def convert_hsl_to_rgb(img_2d):
     rgb_img = np.zeros_like(img_2d, dtype=float)
     for i in range(img_2d.shape[0]):
         for j in range(img_2d.shape[1]):
-            h, s, l = img_2d[i, j] / [360.0, 1, 1]
+            h, s, l = img_2d[i, j]
             r, g, b = colorsys.hls_to_rgb(h, l, s) # Returns values in range [0, 1]
 
             # Convert RGB values to range [0, 255]
@@ -78,20 +76,18 @@ def brighten_image(img_2d, multiplier=1.2):
     return np.clip(img_2d * multiplier, 0, 255).astype(np.uint8)
 
 # Function 2: Contrast
-def increase_contrast(img_2d, multiplier=1.1):
+def increase_contrast(img_2d, multiplier=1.2):
     hsl_img = convert_rgb_to_hsl(img_2d)
 
     # Get Lightness values
     L = hsl_img[:, :, 2]
-    L_min = np.min(L)
     L_max = np.max(L)
-    
-    # Normalize
-    if L_max > L_min:
-        L_norm = (L - L_min) / (L_max - L_min)
-        hsl_img[:, :, 2] = np.clip(multiplier * L_norm, 0, 1)
-    else:
-        hsl_img[:, :, 2] = np.clip(multiplier * L, 0, 1)
+    L_min = np.min(L)
+    L_mid = (L_max + L_min) / 2
+
+    L_new = multiplier * (L - L_mid)  + L_mid
+
+    hsl_img[:, :, 2] = np.clip(L_new, 0, 1)
 
     # Convert back to RGB for result
     return convert_hsl_to_rgb(hsl_img).astype(np.uint8)
@@ -102,25 +98,19 @@ def flip_image(img_2d):
 
 # Function 4: Grayscale and Sepia
 def convert_grayscale_sepia(img_2d):
-    min_value = np.min(img_2d, axis=2)
+    avg_value = np.average(img_2d, axis=2)
     grayscale_img = np.copy(img_2d)
-    grayscale_img[:, :, 0] = min_value
-    grayscale_img[:, :, 1] = min_value
-    grayscale_img[:, :, 2] = min_value
+    grayscale_img[:, :, 0] = avg_value
+    grayscale_img[:, :, 1] = avg_value
+    grayscale_img[:, :, 2] = avg_value
 
-    def get_sepia_rgb(input_rgb):
-        r, g, b = input_rgb
-        sepia_value = [0, 0, 0]
-        sepia_value[0] = np.clip((0.393 * r) + (0.769 * g) + (0.189 * b), 0, 255)
-        sepia_value[1] = np.clip((0.349 * r) + (0.686 * g) + (0.168 * b), 0, 255)
-        sepia_value[2] = np.clip((0.272 * r) + (0.534 * g) + (0.131 * b), 0, 255)
-        return sepia_value
-    
-    sepia_img = np.copy(img_2d)
-    h, w, _ = sepia_img.shape
-    for i in range(h):
-        for j in range(w):
-            sepia_img[i][j] = get_sepia_rgb(img_2d[i][j])
+    sepia_filter = np.array([
+        [0.393, 0.769, 0.189],
+        [0.349, 0.686, 0.168],
+        [0.272, 0.534, 0.131]
+    ])
+    sepia_img = np.dot(img_2d[...,:3], sepia_filter.T)
+    sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
 
     return grayscale_img, sepia_img
 
@@ -219,9 +209,9 @@ def process_image(img_2d, func=[1, 2, 3,...]):
     return processed 2D image
     '''
 
-    # No img_2d array or no saved path
-    if img_2d is None or not saved_image_path or not saved_image_path[0]:
-        raise ValueError("Please call read_img() for img_2d parameter.")
+    # No img_2d array
+    if img_2d is None:
+        raise ValueError("No image array found!")
     
     # Map functions to list of func
     func_map = {
@@ -233,7 +223,6 @@ def process_image(img_2d, func=[1, 2, 3,...]):
         6: crop_by_size,
         7: crop_by_frame
     }
-    branching_func = [3, 4, 5, 7]
 
     # Map suffix to list of func
     suffix_map = {
@@ -253,110 +242,61 @@ def process_image(img_2d, func=[1, 2, 3,...]):
     # Check empty function list
     if not new_func:
         return [img_2d]
+
+    if save_flag == True and (not saved_image_path  or saved_image_path[0] is None):
+        print("No path found to save image!")
+        print("Using default: image_<processed_function>.png")
+        original_path = "image.png"
+    else:
+        original_path = saved_image_path[0]
+
     
-    # If suffix is already in path, increment the repetition number
-    def increment_suffix_in_path(path, suffix):
-        dot_idx = path.rfind('.')
-        base = path[:dot_idx] if dot_idx != -1 else path
-        ext = path[dot_idx:] if dot_idx != -1 else ''
-        idx = base.find(suffix)
-        if idx == -1:
-            return base + suffix + ext
-        # Check if a number follows the suffix
-        num_start = idx + len(suffix)
-        num_end = num_start
-        while num_end < len(base) and base[num_end].isdigit():
-            num_end += 1
-        if num_start < num_end:
-            # Increment existing number
-            num = int(base[num_start:num_end]) + 1
-            new_base = base[:num_start] + str(num) + base[num_end:]
-        else:
-            # Add '2' if no number exists
-            new_base = base[:num_start] + '2' + base[num_start:]
-        return new_base + ext
-    
-    # Each branch is saved as (image, path, previous suffix)
-    branches = [(img_2d, saved_image_path[0], None)]
+    save_img = [] # Save path to append suffix
+    results = []
     for f in new_func:
-        new_branches = []
-        for img, path, prev_suffix in branches:
-            if f in suffix_map:
+        if f in func_map:
+            processed_img = func_map[f](img_2d)
+
+            # Check return error
+            if processed_img is None:
+                print(f"Function {f} returned nothing!")
+                processed_img = [img_2d]
+
+            # If the processed image is a single image, make it a list for extending
+            if isinstance(processed_img, np.ndarray):
+                processed_img = [processed_img]
+
+            results.extend(processed_img)
+
+            if save_flag:
                 suffixes = suffix_map[f]
                 if isinstance(suffixes, str):
                     suffixes = [suffixes]
-            else:
-                suffixes = [""]
-            
-            # Handling branching functions
-            if f in branching_func:
-                if f in func_map:
-                    results = func_map[f](img)
-                else:
-                    results = [img, img]
-
-                for i in range(2):
-                    suffix = suffixes[i]
-                    if prev_suffix == suffix:
-                        new_path = increment_suffix_in_path(path, suffix)
-                    else:
-                        dot_idx = path.rfind('.')
-                        if dot_idx == -1:
-                            new_path = path + suffix
-                        else:
-                            new_path = path[:dot_idx] + suffix + path[dot_idx:]
-
-                    # Save new branches
-                    new_branches.append((results[i], new_path, suffix))
-
-            # Single result functions
-            else:
-                if f in func_map:
-                    result = func_map[f](img)
-                else:
-                    result = img
-
-                suffix = suffixes[0]
-                if prev_suffix == suffix:
-                    new_path = increment_suffix_in_path(path, suffix)
-                else:
-                    dot_idx = path.rfind('.')
-                    if dot_idx == -1:
-                        new_path = path + suffix
-                    else:
-                        new_path = path[:dot_idx] + suffix + path[dot_idx:]
                 
-                # Save the single branch
-                new_branches.append((result, new_path, suffix))
-
-        # Update new branches for each iteration 
-        branches = new_branches
-        
-    # Save all resulting images
-    if save_flag:
-        for img, path, _ in branches:
-            Image.fromarray(img.astype(np.uint8)).save(path)
+                for i, img in enumerate(processed_img):
+                    dot_idx = original_path.rfind('.')
+                    suffix = suffixes[i] if i < len(suffixes) else f"_output{i}"
+                    if dot_idx == -1:
+                        save_path = original_path + suffix
+                    else:
+                        save_path = original_path[:dot_idx] + suffix + original_path[dot_idx:]
+                    save_img.append(save_path)
     
-    # Return list of processed images
-    results = []
-    for img, _ , _ in branches:
-        results.append(img.astype(np.uint8))
+    # Save image with suffix
+    if save_flag:
+        for idx, img in enumerate(results):
+            Image.fromarray(img.astype(np.uint8)).save(save_img[idx])
+    
     return results
     
 # Main function
 def main():
-    img_path = "images/dog.jpg"
+    img_path = "images/fall.png"
     original_img = read_img(img_path)
 
     results = [original_img]
     results.extend(
-        process_image(original_img, func=[2])
-    )
-    results.extend(
-        process_image(original_img, func=[2, 2])
-    )
-    results.extend(
-        process_image(original_img, func=[2, 2, 2])
+        process_image(original_img, func=[0, 1, 2, 3, 4, 5, 6, 7])
     )
 
     # Display images
