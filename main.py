@@ -433,26 +433,25 @@ def measure_time(array_size, function, run):
 
 # Main function
 def main():
-    img_path = "images/mountain.jpg"
+    img_path = "images/leaf.jpg"
     original_img = read_img(img_path)
 
     results = [original_img]
     results.extend(
-       consecutive_process_image(original_img, [0, 7])
+       consecutive_process_image(original_img, [0, 1, 1, 2, 4])
+    )
+    results.extend(
+       consecutive_process_image(original_img, [0, 1, 1, 2, 5])
     )
 
-    # test_size = 2048
-    # for _ in range(1):
-    #     num_runs = 1
-    #     test_function = blur_and_sharpen
-    #     avg_time = measure_time((test_size, test_size), test_function, num_runs)
-    #     print(f"Function {test_function.__name__} on a test array of size ({test_size} x {test_size}) took {avg_time:.4f} seconds.")
-    #     test_size *= 2
-
-    # Display images
-    # for img in results:
-    #     plt.imshow(img)
-    # plt.show()
+    n = len(results)
+    plt.figure(figsize=(5, 5 * n))
+    for i, img in enumerate(results):
+        plt.subplot(n, 1, i + 1)
+        plt.imshow(img)
+        plt.axis('off')
+        plt.title(f"Result {i + 1}")
+    plt.show()
     
 if __name__ == "__main__":
     main()
